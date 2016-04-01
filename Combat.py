@@ -1,4 +1,5 @@
 from tkinter import *
+from Action import *
 import sqlite3, random
 
 Characters = []
@@ -15,6 +16,8 @@ class Character():
         self.acc = acc
         self.eva = eva
         self.CT = 0
+        self.hasMoved = False
+        self.hasActed = False
 
     def getName():
         return self.name
@@ -28,6 +31,8 @@ class Enemy():
         self.acc = acc
         self.eva = eva
         self.CT = 0
+        self.hasMoved = False
+        self.hasActed = False
 
 class BattleConstructor():
     def __init__(self):
@@ -56,8 +61,6 @@ class GUI():
             Combatants.append(enemy)
 
         def showCombatants():
-            for c in Combatants:
-                print(c.name)
             mb.destroy()
             B.destroy()
             BattleScreen()
@@ -84,13 +87,50 @@ class BattleScreen():
         self.prompt = StringVar()
         
         def TakeTurn():
-            Combatants[0].CT -= 80
-            msg = "%s took their turn!" %Combatants[0].name
-            log(msg)
+            if(Combatants[0].hasMoved == True and Combatants[0].hasActed == True):
+                delay = 100
+            elif(Combatants[0].hasMoved == False and Combatants[0].hasActed == False):
+                delay = 60
+            else:
+                delay = 80
+            Combatants[0].CT -= delay
+            Combatants[0].hasMoved = False
             BS.getTurn(self.prompt)
+            MoveB.config(state="normal")
+            AttackB.config(state="normal")
+
+        def Move():
+            Combatants[0].hasMoved = True
+            MoveB.config(state="disabled")
+
+        def Attack():
+            Combatants[0].hasActed = True
+            AttackB.config(state="disabled")
+            SelectionMenu()
+
+        def SelectionMenu():
+            i = 0
+            self.attframe = Frame(txt_frm)
+            self.attframe.grid(row=2, column=0, columnspan=2)
+            for c in Combatants:
+                a = Button(self.attframe, text=c.name, command = lambda x=c: setTarget(x)).grid(row=0, column=i)
+                i += 1
+
+        def setTarget(c):
+            damage = Action.Attack(Combatants[0].acc, c.eva, Combatants[0].attack, c.defense)
+            if(damage == -1):
+                msg = "%s missed %s!" %(Combatants[0].name, c.name)
+                log(msg)
+            else:
+                msg = "%s hit %s for %d points of damage!" %(Combatants[0].name, c.name, damage)
+                log(msg)
+                c.HP -= damage
+                if(c.HP <= 0):
+                    msg = "%s was defeated!" %(c.name)
+                    log(msg)
+            self.attframe.destroy()
 
         def log(msg):
-            # Write on GUI
             self.txt.insert('end', msg + '\n')
 
     # create a Frame for the Text and Scrollbar
@@ -117,8 +157,14 @@ class BattleScreen():
         self.prompt.set('Loading...')
         BS = BattleScene(self.prompt)
 
-        B = Button(root, text ="Take Turn", command = TakeTurn)
-        B.pack()
+        buttonframe = Frame(txt_frm)
+        buttonframe.grid(row=2, column=0, columnspan=2)
+        MoveB = Button(buttonframe, text ="Move", command = Move)
+        MoveB.grid(row=0, column=0)
+        AttackB = Button(buttonframe, text ="Attack", command = Attack)
+        AttackB.grid(row=0, column=1)
+        B = Button(buttonframe, text ="Take Turn", command = TakeTurn)
+        B.grid(row=0, column=2)
 
 class BattleScene():
     def __init__(self, prompt):
