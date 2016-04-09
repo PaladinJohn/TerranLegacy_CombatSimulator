@@ -1,6 +1,6 @@
 from tkinter import *
 from Action import *
-import sqlite3, random
+import random, socket, sqlite3, sys, threading
 
 Characters = []
 Enemies = []
@@ -8,21 +8,6 @@ Combatants = []
 root = Tk()
 
 class Character():
-    def __init__(self, name, HP, attack, defense, acc, eva):
-        self.name = name
-        self.HP = HP
-        self.attack = attack
-        self.defense = defense
-        self.acc = acc
-        self.eva = eva
-        self.CT = 0
-        self.hasMoved = False
-        self.hasActed = False
-
-    def getName():
-        return self.name
-
-class Enemy():
     def __init__(self, name, HP, attack, defense, acc, eva):
         self.name = name
         self.HP = HP
@@ -49,8 +34,42 @@ class BattleConstructor():
             cur.execute("SELECT * FROM Enemy")
             rows = cur.fetchall()
             for row in rows:
-                self.enemy = Enemy(row[0], row[1], row[2], row[3], row[4], row[5])
+                self.enemy = Character(row[0], row[1], row[2], row[3], row[4], row[5])
                 Enemies.append(self.enemy)
+
+class ClientConnect():
+    def __init__(self):
+        def tCon():
+            t = threading.Thread(target = connect)
+            t.setDaemon(True)
+            t.start()
+            
+        def connect():
+            host = e.get()
+            print(host)
+            s.connect((host, 4594))
+            try:
+                message = "Network Test."
+                s.send(message.encode())
+                print("Success!")
+            except(socket.error, msg):
+                print("Failed to create socket. Error Code: " + str(msg[0]) + " Message " + msg[1])
+                sys.exit()
+        
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_address = ('', 4594)
+            s.bind(server_address)
+        except(socket.error, msg):
+            print("Failed to create socket. Error Code: " + str(msg[0]) + " Message " + msg[1])
+            sys.exit()
+
+        e = Entry(root)
+        e.pack()
+        e.focus_set()
+        b = Button(root, text="Go!", width=10, command=tCon)
+        b.pack()
+        root.mainloop()
 
 class GUI():
     def __init__(self):
@@ -75,7 +94,7 @@ class GUI():
             i = i + 1
         i = 0
         for en in Enemies:
-            mb.menu.add_command(label=Enemies[i].name, command=lambda x=i: addEnemy(Enemies[x]))
+            mb.menu.add_command(label=en.name, command=lambda x=i: addEnemy(Enemies[x]))
             i = i + 1
         mb.pack()
         B = Button(root, text ="Go!", command = showCombatants)
@@ -136,9 +155,7 @@ class BattleScreen():
     # create a Frame for the Text and Scrollbar
         txt_frm = Frame(root, width=600, height=600)
         txt_frm.pack(fill="both", expand=True)
-        # ensure a consistent GUI size
         txt_frm.grid_propagate(False)
-        # implement stretchability
         txt_frm.grid_rowconfigure(0, weight=1)
         txt_frm.grid_columnconfigure(0, weight=1)
 
@@ -188,7 +205,9 @@ class BattleScene():
 class main():
     constructor = BattleConstructor()
     constructor.Populate()
-    GUI = GUI()
+    #Old Selector GUI. Temporarily disabled for First-Playable.
+    #GUI = GUI()
+    cli = ClientConnect()
 
 if __name__ == "__main__":
     main()
