@@ -1,11 +1,20 @@
-from tkinter import *
 from Action import *
-import random, socket, sqlite3, sys, threading
+from kivy.app import App
+from kivy.uix.accordion import Accordion, AccordionItem
+from kivy.uix.actionbar import ActionBar, ActionButton, ActionPrevious, ActionView
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.bubble import Bubble, BubbleButton
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.screenmanager import Screen, ScreenManager
+from kivy.uix.togglebutton import ToggleButton
+import random, sqlite3
 
 Characters = []
 Enemies = []
 Combatants = []
-root = Tk()
+Screens = []
+sm = ScreenManager()
 
 class Character():
     def __init__(self, name, HP, attack, defense, acc, eva):
@@ -37,166 +46,176 @@ class BattleConstructor():
                 self.enemy = Character(row[0], row[1], row[2], row[3], row[4], row[5])
                 Enemies.append(self.enemy)
 
-class ClientConnect():
-    def __init__(self):
-        def tCon():
-            t = threading.Thread(target = connect)
-            t.setDaemon(True)
-            t.start()
-            
-        def connect():
-            host = e.get()
-            print(host)
-            s.connect((host, 4594))
-            try:
-                message = "Network Test."
-                s.send(message.encode())
-                print("Success!")
-            except(socket.error, msg):
-                print("Failed to create socket. Error Code: " + str(msg[0]) + " Message " + msg[1])
-                sys.exit()
-        
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_address = ('', 4594)
-            s.bind(server_address)
-        except(socket.error, msg):
-            print("Failed to create socket. Error Code: " + str(msg[0]) + " Message " + msg[1])
-            sys.exit()
+class SelectionScreen(Screen):
+    def __init__(self, **kwargs):
+        super(SelectionScreen, self).__init__(**kwargs)
 
-        e = Entry(root)
-        e.pack()
-        e.focus_set()
-        b = Button(root, text="Go!", width=10, command=tCon)
-        b.pack()
-        root.mainloop()
-
-class GUI():
-    def __init__(self):
-        def addCharacter(character):
-            Combatants.append(character)
-
-        def addEnemy(enemy):
-            Combatants.append(enemy)
-
-        def showCombatants():
-            mb.destroy()
-            B.destroy()
-            BattleScreen()
-
-        i = 0
-        mb = Menubutton(root, text="Combatants", relief=RAISED)
-        mb.grid()
-        mb.menu = Menu(mb, tearoff = 0)
-        mb["menu"] = mb.menu
+        self.root = Accordion()
+        charItem = AccordionItem(title='Characters')
+        self.root.add_widget(charItem)
+        enItem = AccordionItem(title='Enemies')
+        self.root.add_widget(enItem)
+        confirmItem = AccordionItem(title='Done')
+        self.root.add_widget(confirmItem)
+        self.CharButtons = []
+        self.EnemyButtons = []
         for char in Characters:
-            mb.menu.add_command(label=char.name, command=lambda x=i: addCharacter(Characters[x]))
-            i = i + 1
-        i = 0
+            btn = ToggleButton(text=char.name)
+            charItem.add_widget(btn)
+            self.CharButtons.append(btn)
         for en in Enemies:
-            mb.menu.add_command(label=en.name, command=lambda x=i: addEnemy(Enemies[x]))
-            i = i + 1
-        mb.pack()
-        B = Button(root, text ="Go!", command = showCombatants)
-        B.pack()
-        root.mainloop()
+            btn = ToggleButton(text=en.name)
+            enItem.add_widget(btn)
+            self.EnemyButtons.append(btn)
+        B = Button(text='Go!')
+        B.bind(on_press=self.showCombatants)
+        confirmItem.add_widget(B)
+        self.add_widget(self.root)
 
-class BattleScreen():
-    def __init__(self):
-        self.prompt = StringVar()
-        
-        def TakeTurn():
-            if(Combatants[0].hasMoved == True and Combatants[0].hasActed == True):
-                delay = 100
-            elif(Combatants[0].hasMoved == False and Combatants[0].hasActed == False):
-                delay = 60
-            else:
-                delay = 80
-            Combatants[0].CT -= delay
-            Combatants[0].hasMoved = False
-            BS.getTurn(self.prompt)
-            MoveB.config(state="normal")
-            AttackB.config(state="normal")
+    def showCombatants(self, obj):
+        i = 0
+        for c in self.CharButtons:
+            if c.state == 'down':
+                Combatants.append(Characters[i])
+            i += 1
+        i = 0
+        for e in self.EnemyButtons:
+            if e.state == 'down':
+                Combatants.append(Enemies[i])
+            i += 1
+        BS = BattleScreen(name="Battle Screen")
+        sm.add_widget(BS)
+        Screens.append(BS)
+        self.manager.current = 'Battle Screen'
 
-        def Move():
-            Combatants[0].hasMoved = True
-            MoveB.config(state="disabled")
+class BattleScreen(Screen):
+    def __init__(self, **kwargs):
+        super(BattleScreen, self).__init__(**kwargs)
 
-        def Attack():
-            Combatants[0].hasActed = True
-            AttackB.config(state="disabled")
-            SelectionMenu()
+        self.bScene = BattleScene()
+        self.layout = BoxLayout(orientation='vertical')
+        self.actionBar = ActionBar()
+        self.view = ActionView()
+        self.prompt = self.bScene.getTurn()
+        self.nametag = ActionPrevious(title=self.prompt)
+        self.MoveButton = ActionButton(text='Move')
+        self.AttackButton = ActionButton(text='Attack')
+        self.ConfirmButton = ActionButton(text='Take Turn')
+        self.MoveButton.bind(on_press=self.Move)
+        self.AttackButton.bind(on_press=self.Action)
+        self.ConfirmButton.bind(on_press=self.TakeTurn)
+        self.battleLog = 'Now Beginning Battle...'
+        self.label = Label(text=self.battleLog)
+        self.layout.add_widget(self.actionBar)
+        self.layout.add_widget(self.label)
+        self.actionBar.add_widget(self.view)
+        self.view.add_widget(self.nametag)
+        self.view.add_widget(self.MoveButton)
+        self.view.add_widget(self.AttackButton)
+        self.view.add_widget(self.ConfirmButton)
+        self.add_widget(self.layout)
+        self.Target = Combatants[0]
 
-        def SelectionMenu():
-            i = 0
-            self.attframe = Frame(txt_frm)
-            self.attframe.grid(row=2, column=0, columnspan=2)
-            for c in Combatants:
-                a = Button(self.attframe, text=c.name, command = lambda x=c: setTarget(x)).grid(row=0, column=i)
-                i += 1
+    def TakeTurn(self, obj):
+        if(Combatants[0].hasMoved == True and Combatants[0].hasActed == True):
+            delay = 100
+        elif(Combatants[0].hasMoved == False and Combatants[0].hasActed == False):
+            delay = 60
+        else:
+            delay = 80
+        Combatants[0].CT -= delay
+        Combatants[0].hasMoved = False
+        Combatants[0].hasActed = False
+        self.prompt = self.bScene.getTurn()
+        self.nametag.title = self.prompt
+        self.MoveButton.disabled = False
+        self.AttackButton.disabled = False
 
-        def setTarget(c):
-            damage = Action.Attack(Combatants[0].acc, c.eva, Combatants[0].attack, c.defense)
-            if(damage == -1):
-                msg = "%s missed %s!" %(Combatants[0].name, c.name)
-                log(msg)
-            else:
-                msg = "%s hit %s for %d points of damage!" %(Combatants[0].name, c.name, damage)
-                log(msg)
-                c.HP -= damage
-                if(c.HP <= 0):
-                    msg = "%s was defeated!" %(c.name)
-                    log(msg)
-            self.attframe.destroy()
+    def Move(self, obj):
+        Combatants[0].hasMoved = True
+        self.MoveButton.disabled = True
 
-        def log(msg):
-            self.txt.insert('end', msg + '\n')
+    def Action(self, obj):
+        Combatants[0].hasActed = True
+        self.AttackButton.disabled = True
+        Screens[0].populate()
+        self.manager.current = 'Action Menu'
 
-    # create a Frame for the Text and Scrollbar
-        txt_frm = Frame(root, width=600, height=600)
-        txt_frm.pack(fill="both", expand=True)
-        txt_frm.grid_propagate(False)
-        txt_frm.grid_rowconfigure(0, weight=1)
-        txt_frm.grid_columnconfigure(0, weight=1)
+    def Attack(self):
+        damage = Action.Attack(Combatants[0].acc, self.Target.eva, Combatants[0].attack, self.Target.defense)
+        if(damage == -1):
+            msg = "%s missed %s!" %(Combatants[0].name, self.Target.name)
+            self.battleLog = self.battleLog + "\n" + msg
+            self.label.text = self.battleLog
+        else:
+            msg = "%s hit %s for %d points of damage!" %(Combatants[0].name, self.Target.name, damage)
+            self.battleLog = self.battleLog + "\n" + msg
+            self.label.text = self.battleLog
+            self.Target.HP -= damage
+            if(self.Target.HP <= 0):
+                msg = "%s was defeated!" %(self.Target.name)
+                self.battleLog = self.battleLog + "\n" + msg
+                self.label.text = self.battleLog
 
-    # create a Text widget
-        self.txt = Text(txt_frm, borderwidth=3, relief="sunken")
-        self.txt.config(font=("consolas", 12), undo=True, wrap='word')
-        self.txt.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+class ActionMenu(Screen):
+    def __init__(self, **kwargs):
+        super(ActionMenu, self).__init__(**kwargs)
 
-    # create a Scrollbar and associate it with txt
-        scrollb = Scrollbar(txt_frm, command=self.txt.yview)
-        scrollb.grid(row=0, column=1, sticky='nsew')
-        self.txt['yscrollcommand'] = scrollb.set
+        self.root = Accordion(orientation='vertical')
+        self.targItem = AccordionItem(title='Target')
+        self.root.add_widget(self.targItem)
+        self.conItem = AccordionItem(title='Confirm')
+        self.root.add_widget(self.conItem)
+        B = Button(text='Confirm')
+        B.bind(on_press=self.confirmTarget)
+        self.conItem.add_widget(B)
+        self.add_widget(self.root)
 
-        L = Label(root, textvariable = self.prompt)
-        L.pack()
-        self.prompt.set('Loading...')
-        BS = BattleScene(self.prompt)
+    def populate(self):
+        self.ComButtons = []
+        for c in Combatants:
+            btn = ToggleButton(text=c.name, group='targets')
+            self.targItem.add_widget(btn)
+            self.ComButtons.append(btn)
 
-        buttonframe = Frame(txt_frm)
-        buttonframe.grid(row=2, column=0, columnspan=2)
-        MoveB = Button(buttonframe, text ="Move", command = Move)
-        MoveB.grid(row=0, column=0)
-        AttackB = Button(buttonframe, text ="Attack", command = Attack)
-        AttackB.grid(row=0, column=1)
-        B = Button(buttonframe, text ="Take Turn", command = TakeTurn)
-        B.grid(row=0, column=2)
+    def confirmTarget(self, obj):
+        hasTarget = False
+        i = 0
+        for b in self.ComButtons:
+            if b.state == 'down':
+                hasTarget = True
+                Screens[1].Target = Combatants[i]
+            i += 1
+        if hasTarget == True:
+            hasTarget = False
+            self.targItem.clear_widgets(children=self.ComButtons)
+            self.ComButtons.clear()
+            self.manager.current = 'Battle Screen'
+            Screens[1].Attack()
+
+class CombatApp(App):
+    def build(self):
+        SS = SelectionScreen(name="Selection Screen")
+        sm.add_widget(SS)
+        AM = ActionMenu(name="Action Menu")
+        Screens.append(AM)
+        sm.add_widget(AM)
+        return sm
 
 class BattleScene():
-    def __init__(self, prompt):
+    def __init__(self):
         self.Initiative()
-        self.getTurn(prompt)
-
+    
     def Initiative(self):
         for c in Combatants:
             c.CT = random.randint(0, 100)
 
-    def getTurn(self, prompt):
+    def getTurn(self):
         Combatants.sort(key = lambda Combatant: Combatant.CT, reverse = True)
         while Combatants[0].CT < 100:
             self.ClockTick()
-        prompt.set(Combatants[0].name + '\'s Turn!')
+        prompt = Combatants[0].name
+        return prompt
 
     def ClockTick(self):
         for c in Combatants:
@@ -205,9 +224,7 @@ class BattleScene():
 class main():
     constructor = BattleConstructor()
     constructor.Populate()
-    #Old Selector GUI. Temporarily disabled for First-Playable.
-    #GUI = GUI()
-    cli = ClientConnect()
+    CombatApp().run()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
