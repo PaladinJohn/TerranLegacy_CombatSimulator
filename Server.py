@@ -2,13 +2,14 @@ import socket, sys
 from _thread import *
 
 HOST = socket.gethostname()
+print(HOST)
 PORT = 4594
 
 def clientthread(conn):
     msg = "Welcome to the server.\n"
     conn.send(msg.encode())
     while True:
-        data = conn.recv(1024).decode()
+        data = conn.recv(2048).decode()
         print(data)
         reply = "Poop" + data
         if not data:

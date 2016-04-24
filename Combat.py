@@ -7,8 +7,9 @@ from kivy.uix.bubble import Bubble, BubbleButton
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.screenmanager import Screen, ScreenManager
+from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
-import random, sqlite3
+import random, socket, sqlite3, threading
 
 Characters = []
 Enemies = []
@@ -45,6 +46,38 @@ class BattleConstructor():
             for row in rows:
                 self.enemy = Character(row[0], row[1], row[2], row[3], row[4], row[5])
                 Enemies.append(self.enemy)
+
+class ConnectionScreen(Screen):
+    def __init__(self, **kwargs):
+        super(ConnectionScreen, self).__init__(**kwargs)
+
+        def on_enter(instance):
+            t = threading.Thread(target = connect)
+            t.setDaemon(True)
+            t.start()
+
+        def connect():
+            host = self.textinput.text
+            s.connect((host, 4594))
+            data = s.recv(2048).decode()
+            message = "Network Test."
+            s.send(message.encode())
+            self.manager.current = 'Selection Screen'
+            
+
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_address = ('', 4594)
+            #s.bind(server_address)
+        except(socket.error, msg):
+            print("Failed to create socket. Error Code: " + str(msg[0]) + " Message " + msg[1])
+            sys.exit()
+        
+        self.root = BoxLayout(orientation='vertical')
+        self.textinput = TextInput(text='John-PC', multiline=False)
+        self.textinput.bind(on_text_validate=on_enter)
+        self.root.add_widget(self.textinput)
+        self.add_widget(self.root)
 
 class SelectionScreen(Screen):
     def __init__(self, **kwargs):
@@ -195,6 +228,8 @@ class ActionMenu(Screen):
 
 class CombatApp(App):
     def build(self):
+        CS = ConnectionScreen(name="Connection Screen")
+        sm.add_widget(CS)
         SS = SelectionScreen(name="Selection Screen")
         sm.add_widget(SS)
         AM = ActionMenu(name="Action Menu")
