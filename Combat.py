@@ -1,3 +1,4 @@
+from _thread import *
 from Action import *
 from kivy.app import App
 from kivy.uix.accordion import Accordion, AccordionItem
@@ -15,7 +16,9 @@ Characters = []
 Enemies = []
 Combatants = []
 Screens = []
+Servers = []
 sm = ScreenManager()
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 class Character():
     def __init__(self, name, HP, attack, defense, acc, eva):
@@ -52,9 +55,20 @@ class ConnectionScreen(Screen):
         super(ConnectionScreen, self).__init__(**kwargs)
 
         def on_enter(instance):
-            t = threading.Thread(target = connect)
-            t.setDaemon(True)
-            t.start()
+            if dmBtn.state == "down":
+                t = threading.Thread(target = startServer)
+                t.setDaemon(True)
+                t.start()
+                self.manager.current = 'Selection Screen'
+            elif pcBtn.state == "down":
+                t = threading.Thread(target = connect)
+                t.setDaemon(True)
+                t.start()
+                self.manager.current = 'Selection Screen'
+
+        def startServer():
+            serv = Server()
+            Servers.append(serv)
 
         def connect():
             host = self.textinput.text
@@ -62,21 +76,19 @@ class ConnectionScreen(Screen):
             data = s.recv(2048).decode()
             message = "Network Test."
             s.send(message.encode())
-            self.manager.current = 'Selection Screen'
-            
-
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_address = ('', 4594)
-            #s.bind(server_address)
-        except(socket.error, msg):
-            print("Failed to create socket. Error Code: " + str(msg[0]) + " Message " + msg[1])
-            sys.exit()
         
-        self.root = BoxLayout(orientation='vertical')
-        self.textinput = TextInput(text='John-PC', multiline=False)
+        self.root = Accordion()
+        roleItem = AccordionItem(title='Role')
+        self.root.add_widget(roleItem)
+        serverItem = AccordionItem(title='Server')
+        self.root.add_widget(serverItem)
+        dmBtn = ToggleButton(text="DM", group="role")
+        pcBtn = ToggleButton(text="Player", group="role", state="down")
+        self.textinput = TextInput(text='John-LAPTOP', multiline=False)
         self.textinput.bind(on_text_validate=on_enter)
-        self.root.add_widget(self.textinput)
+        roleItem.add_widget(dmBtn)
+        roleItem.add_widget(pcBtn)
+        serverItem.add_widget(self.textinput)
         self.add_widget(self.root)
 
 class SelectionScreen(Screen):
@@ -255,6 +267,38 @@ class BattleScene():
     def ClockTick(self):
         for c in Combatants:
             c.CT += 5
+
+class Server():
+    def __init__(self):
+        HOST = socket.gethostname()
+        print(HOST)
+        PORT = 4594
+
+        def clientthread(conn):
+            msg = "Welcome to the server.\n"
+            conn.send(msg.encode())
+            while True:
+                data = conn.recv(2048).decode()
+                print(data)
+                reply = "Poop" + data
+                if not data:
+                    break
+
+                conn.sendall(reply.encode())
+
+            conn.close()
+
+        s = socket.socket()
+        s.bind((HOST, PORT))
+        s.listen(1)
+        print("Socket now listening")
+
+        while True:
+            conn, addr = s.accept()
+            print("Connected with " + addr[0] + ":" + str(addr[1]))
+            start_new_thread(clientthread,(conn,))
+
+        s.close()
 
 class main():
     constructor = BattleConstructor()
