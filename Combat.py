@@ -1,100 +1,65 @@
 from _thread import *
 from Action import *
+from Character import *
+from Roster import *
 from kivy.app import App
 from kivy.uix.accordion import Accordion, AccordionItem
 from kivy.uix.actionbar import ActionBar, ActionButton, ActionPrevious, ActionView
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.bubble import Bubble, BubbleButton
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
-import random, socket, sqlite3, threading
+import Pyro4, Pyro4.util, random, socket, sys, threading
 
-Characters = []
-Enemies = []
-Combatants = []
+Combatants = None
 Screens = []
-Servers = []
 sm = ScreenManager()
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-class Character():
-    def __init__(self, name, HP, attack, defense, acc, eva):
-        self.name = name
-        self.HP = HP
-        self.attack = attack
-        self.defense = defense
-        self.acc = acc
-        self.eva = eva
-        self.CT = 0
-        self.hasMoved = False
-        self.hasActed = False
-
-class BattleConstructor():
-    def __init__(self):
-        self.conn = sqlite3.connect('stats.db')
-
-    def Populate(self):
-        with self.conn:    
-            cur = self.conn.cursor()
-            cur.execute("SELECT * FROM Characters")
-            rows = cur.fetchall()
-            for row in rows:
-                self.character = Character(row[0], row[1], row[2], row[3], row[4], row[5])
-                Characters.append(self.character)
-            cur.execute("SELECT * FROM Enemy")
-            rows = cur.fetchall()
-            for row in rows:
-                self.enemy = Character(row[0], row[1], row[2], row[3], row[4], row[5])
-                Enemies.append(self.enemy)
+sys.excepthook = Pyro4.util.excepthook
+isDM = False
 
 class ConnectionScreen(Screen):
     def __init__(self, **kwargs):
         super(ConnectionScreen, self).__init__(**kwargs)
 
-        def on_enter(instance):
-            if dmBtn.state == "down":
-                t = threading.Thread(target = startServer)
-                t.setDaemon(True)
-                t.start()
-                self.manager.current = 'Selection Screen'
-            elif pcBtn.state == "down":
-                t = threading.Thread(target = connect)
-                t.setDaemon(True)
-                t.start()
-                self.manager.current = 'Selection Screen'
-
-        def startServer():
-            serv = Server()
-            Servers.append(serv)
-
-        def connect():
-            host = self.textinput.text
-            s.connect((host, 4594))
-            data = s.recv(2048).decode()
-            message = "Network Test."
-            s.send(message.encode())
-        
         self.root = Accordion()
         roleItem = AccordionItem(title='Role')
         self.root.add_widget(roleItem)
         serverItem = AccordionItem(title='Server')
         self.root.add_widget(serverItem)
-        dmBtn = ToggleButton(text="DM", group="role")
-        pcBtn = ToggleButton(text="Player", group="role", state="down")
+        self.dmBtn = ToggleButton(text="DM", group="role")
+        self.pcBtn = ToggleButton(text="Player", group="role", state="down")
         self.textinput = TextInput(text='John-LAPTOP', multiline=False)
-        self.textinput.bind(on_text_validate=on_enter)
-        roleItem.add_widget(dmBtn)
-        roleItem.add_widget(pcBtn)
+        self.textinput.bind(on_text_validate=self.on_confirm)
+        roleItem.add_widget(self.dmBtn)
+        roleItem.add_widget(self.pcBtn)
         serverItem.add_widget(self.textinput)
         self.add_widget(self.root)
+
+    def on_confirm(self, instance):
+        global Combatants
+        if self.dmBtn.state == "down":
+            Combatants = Roster()
+            t = threading.Thread(target = self.startServer)
+            t.start()
+            isDM = True
+        elif self.pcBtn.state == "down":
+            nameserver = Pyro4.locateNS(host=self.textinput.text)
+            Combatants = Pyro4.Proxy("PYRONAME:Combatants")
+            print(Combatants.testConnection())
+        SS = SelectionScreen(name="Selection Screen")
+        sm.add_widget(SS)
+        self.manager.current = 'Selection Screen'
+
+    def startServer(self):
+        Pyro4.Daemon.serveSimple({Combatants: "Combatants"}, host=socket.gethostname(), ns=True)
 
 class SelectionScreen(Screen):
     def __init__(self, **kwargs):
         super(SelectionScreen, self).__init__(**kwargs)
 
+        global Combatants
         self.root = Accordion()
         charItem = AccordionItem(title='Characters')
         self.root.add_widget(charItem)
@@ -104,14 +69,18 @@ class SelectionScreen(Screen):
         self.root.add_widget(confirmItem)
         self.CharButtons = []
         self.EnemyButtons = []
-        for char in Characters:
-            btn = ToggleButton(text=char.name)
+        i = 0
+        while i < Combatants.getNumChars():
+            btn = ToggleButton(text=Combatants.getCharName(i))
             charItem.add_widget(btn)
             self.CharButtons.append(btn)
-        for en in Enemies:
-            btn = ToggleButton(text=en.name)
+            i = i+ 1
+        i = 0
+        while i < Combatants.getNumEn():
+            btn = ToggleButton(text=Combatants.getEnName(i))
             enItem.add_widget(btn)
             self.EnemyButtons.append(btn)
+            i = i + 1
         B = Button(text='Go!')
         B.bind(on_press=self.showCombatants)
         confirmItem.add_widget(B)
@@ -121,12 +90,12 @@ class SelectionScreen(Screen):
         i = 0
         for c in self.CharButtons:
             if c.state == 'down':
-                Combatants.append(Characters[i])
+                Combatants.add(i, True)
             i += 1
         i = 0
         for e in self.EnemyButtons:
             if e.state == 'down':
-                Combatants.append(Enemies[i])
+                Combatants.add(i, False)
             i += 1
         BS = BattleScreen(name="Battle Screen")
         sm.add_widget(BS)
@@ -159,41 +128,41 @@ class BattleScreen(Screen):
         self.view.add_widget(self.AttackButton)
         self.view.add_widget(self.ConfirmButton)
         self.add_widget(self.layout)
-        self.Target = Combatants[0]
+        self.Target = Combatants.get(0)
 
     def TakeTurn(self, obj):
-        if(Combatants[0].hasMoved == True and Combatants[0].hasActed == True):
+        if(Combatants.get(0).hasMoved == True and Combatants.get(0).hasActed == True):
             delay = 100
-        elif(Combatants[0].hasMoved == False and Combatants[0].hasActed == False):
+        elif(Combatants.get(0).hasMoved == False and Combatants.get(0).hasActed == False):
             delay = 60
         else:
             delay = 80
-        Combatants[0].CT -= delay
-        Combatants[0].hasMoved = False
-        Combatants[0].hasActed = False
+        Combatants.get(0).CT -= delay
+        Combatants.get(0).hasMoved = False
+        Combatants.get(0).hasActed = False
         self.prompt = self.bScene.getTurn()
         self.nametag.title = self.prompt
         self.MoveButton.disabled = False
         self.AttackButton.disabled = False
 
     def Move(self, obj):
-        Combatants[0].hasMoved = True
+        Combatants.get(0).hasMoved = True
         self.MoveButton.disabled = True
 
     def Action(self, obj):
-        Combatants[0].hasActed = True
+        Combatants.get(0).hasActed = True
         self.AttackButton.disabled = True
         Screens[0].populate()
         self.manager.current = 'Action Menu'
 
     def Attack(self):
-        damage = Action.Attack(Combatants[0].acc, self.Target.eva, Combatants[0].attack, self.Target.defense)
+        damage = Action.Attack(Combatants.get(0).acc, self.Target.eva, Combatants.get(0).attack, self.Target.defense)
         if(damage == -1):
-            msg = "%s missed %s!" %(Combatants[0].name, self.Target.name)
+            msg = "%s missed %s!" %(Combatants.get(0).name, self.Target.name)
             self.battleLog = self.battleLog + "\n" + msg
             self.label.text = self.battleLog
         else:
-            msg = "%s hit %s for %d points of damage!" %(Combatants[0].name, self.Target.name, damage)
+            msg = "%s hit %s for %d points of damage!" %(Combatants.get(0).name, self.Target.name, damage)
             self.battleLog = self.battleLog + "\n" + msg
             self.label.text = self.battleLog
             self.Target.HP -= damage
@@ -218,7 +187,7 @@ class ActionMenu(Screen):
 
     def populate(self):
         self.ComButtons = []
-        for c in Combatants:
+        for c in Combatants.retList():
             btn = ToggleButton(text=c.name, group='targets')
             self.targItem.add_widget(btn)
             self.ComButtons.append(btn)
@@ -229,7 +198,7 @@ class ActionMenu(Screen):
         for b in self.ComButtons:
             if b.state == 'down':
                 hasTarget = True
-                Screens[1].Target = Combatants[i]
+                Screens[1].Target = Combatants.get(i)
             i += 1
         if hasTarget == True:
             hasTarget = False
@@ -242,8 +211,6 @@ class CombatApp(App):
     def build(self):
         CS = ConnectionScreen(name="Connection Screen")
         sm.add_widget(CS)
-        SS = SelectionScreen(name="Selection Screen")
-        sm.add_widget(SS)
         AM = ActionMenu(name="Action Menu")
         Screens.append(AM)
         sm.add_widget(AM)
@@ -254,55 +221,21 @@ class BattleScene():
         self.Initiative()
     
     def Initiative(self):
-        for c in Combatants:
+        for c in Combatants.retList():
             c.CT = random.randint(0, 100)
 
     def getTurn(self):
-        Combatants.sort(key = lambda Combatant: Combatant.CT, reverse = True)
-        while Combatants[0].CT < 100:
+        Combatants.retList().sort(key = lambda Combatant: Combatant.CT, reverse = True)
+        while Combatants.get(0).CT < 100:
             self.ClockTick()
-        prompt = Combatants[0].name
+        prompt = Combatants.get(0).name
         return prompt
 
     def ClockTick(self):
-        for c in Combatants:
+        for c in Combatants.retList():
             c.CT += 5
 
-class Server():
-    def __init__(self):
-        HOST = socket.gethostname()
-        print(HOST)
-        PORT = 4594
-
-        def clientthread(conn):
-            msg = "Welcome to the server.\n"
-            conn.send(msg.encode())
-            while True:
-                data = conn.recv(2048).decode()
-                print(data)
-                reply = "Poop" + data
-                if not data:
-                    break
-
-                conn.sendall(reply.encode())
-
-            conn.close()
-
-        s = socket.socket()
-        s.bind((HOST, PORT))
-        s.listen(1)
-        print("Socket now listening")
-
-        while True:
-            conn, addr = s.accept()
-            print("Connected with " + addr[0] + ":" + str(addr[1]))
-            start_new_thread(clientthread,(conn,))
-
-        s.close()
-
 class main():
-    constructor = BattleConstructor()
-    constructor.Populate()
     CombatApp().run()
 
 if __name__ == '__main__':
