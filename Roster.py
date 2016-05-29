@@ -49,10 +49,9 @@ class Roster(object):
         if isChar == True:
             self.contents.append(self.Characters[i])
         else:
-            #en = copy.copy(self.Enemies[i])
-            #daemon.register(en)
-            #self.contents.append(en)
-            self.contents.append(self.Enemies[i])
+            en = Character(self.Enemies[i].name, self.Enemies[i].HP, self.Enemies[i].attack, self.Enemies[i].defense, self.Enemies[i].acc, self.Enemies[i].eva)
+            daemon.register(en)
+            self.contents.append(en)
 
     def getNumChars(self):
         return len(self.Characters)

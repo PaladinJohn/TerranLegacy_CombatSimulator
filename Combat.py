@@ -4,6 +4,8 @@ from Character import *
 from Item import *
 from Roster import *
 from kivy.app import App
+from kivy.lang import Builder
+from kivy.properties import StringProperty
 from kivy.uix.accordion import Accordion, AccordionItem
 from kivy.uix.actionbar import ActionBar, ActionButton, ActionPrevious, ActionView
 from kivy.uix.boxlayout import BoxLayout
@@ -11,6 +13,7 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen, ScreenManager
+from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
 import Pyro4, Pyro4.util, random, socket, sys, threading
@@ -20,6 +23,18 @@ Screens = []
 sm = ScreenManager()
 sys.excepthook = Pyro4.util.excepthook
 isDM = False
+
+Builder.load_string('''
+<ScrollableLabel>:
+    Label:
+        size_hint_y: None
+        height: self.texture_size[1]
+        text_size: self.width, None
+        text: root.text
+''')
+
+class ScrollableLabel(ScrollView):
+    text = StringProperty('')
 
 class ConnectionScreen(Screen):
     def __init__(self, **kwargs):
@@ -73,7 +88,7 @@ class SelectionScreen(Screen):
         self.EnemyButtons = []
         self.enemyIter = 0
         self.quantity = 0
-        self.content = TextInput(text='9', multiline=False)
+        self.content = TextInput(text='1', multiline=False)
         self.content.bind(on_text_validate=self.setQuantity)
         i = 0
         while i < Combatants.getNumChars():
@@ -114,7 +129,7 @@ class SelectionScreen(Screen):
             Combatants.add(self.enemyIter, False)
             j += 1
             if int(self.quantity) > 1:
-                Combatants.getLast().name = Combatants.getLast().Name + " " + str(j)
+                Combatants.getLast().name = Combatants.getLast().name + " " + str(j)
         self.popup.dismiss()
         self.beginBattle()
 
@@ -143,7 +158,7 @@ class BattleScreen(Screen):
         self.AbilityButton.bind(on_press=self.Ability)
         self.ConfirmButton.bind(on_press=self.TakeTurn)
         self.battleLog = 'Now Beginning Battle...'
-        self.label = Label(text=self.battleLog)
+        self.label = ScrollableLabel(text=self.battleLog)
         self.layout.add_widget(self.actionBar)
         self.layout.add_widget(self.label)
         self.actionBar.add_widget(self.view)
@@ -183,14 +198,10 @@ class BattleScreen(Screen):
         self.MoveButton.disabled = True
 
     def Action(self, obj):
-        Combatants.get(0).hasActed = True
-        self.AttackButton.disabled = True
         Screens[0].populate()
         self.manager.current = 'Action Menu'
 
     def Ability(self, obj):
-        Combatants.get(0).abilitiesUsed = Combatants.get(0).abilitiesUsed + 1
-        self.AbilityButton.disabled = True
         Screens[1].populateItems()
         Screens[1].populateTargs()
         self.manager.current = 'Ability Menu'
@@ -228,8 +239,11 @@ class ActionMenu(Screen):
         self.conItem = AccordionItem(title='Confirm')
         self.root.add_widget(self.conItem)
         B = Button(text='Confirm')
+        B2 = Button(text='Cancel')
         B.bind(on_press=self.confirmTarget)
+        B2.bind(on_press=self.cancel)
         self.conItem.add_widget(B)
+        self.conItem.add_widget(B2)
         self.add_widget(self.root)
 
     def populate(self):
@@ -251,8 +265,15 @@ class ActionMenu(Screen):
             hasTarget = False
             self.targItem.clear_widgets(children=self.ComButtons)
             self.ComButtons.clear()
+            Combatants.get(0).hasActed = True
+            Screens[2].AttackButton.disabled = True
             self.manager.current = 'Battle Screen'
             Screens[2].Attack()
+
+    def cancel(self, obj):
+        self.targItem.clear_widgets(children=self.ComButtons)
+        self.ComButtons.clear()
+        self.manager.current = 'Battle Screen'
 
 class AbilityMenu(Screen):
     def __init__(self, **kwargs):
@@ -266,8 +287,11 @@ class AbilityMenu(Screen):
         self.conItem = AccordionItem(title='Confirm')
         self.root.add_widget(self.conItem)
         B = Button(text='Confirm')
+        B2 = Button(text='Cancel')
         B.bind(on_press=self.confirmTarget)
+        B2.bind(on_press=self.cancel)
         self.conItem.add_widget(B)
+        self.conItem.add_widget(B2)
         self.add_widget(self.root)
 
     def populateItems(self):
@@ -308,8 +332,17 @@ class AbilityMenu(Screen):
             self.ComButtons.clear()
             self.invItem.clear_widgets(children=self.ItemButtons)
             self.ItemButtons.clear()
+            Combatants.get(0).abilitiesUsed = Combatants.get(0).abilitiesUsed + 1
+            Screens[2].AbilityButton.disabled = True
             self.manager.current = 'Battle Screen'
             Screens[2].UseItem(itemNum)
+
+    def cancel(self, obj):
+        self.targItem.clear_widgets(children=self.ComButtons)
+        self.ComButtons.clear()
+        self.invItem.clear_widgets(children=self.ItemButtons)
+        self.ItemButtons.clear()
+        self.manager.current = 'Battle Screen'
 
 class CombatApp(App):
     def build(self):
