@@ -1,6 +1,7 @@
 from _thread import *
 from Action import *
 from Character import *
+from Item import *
 from Roster import *
 from kivy.app import App
 from kivy.uix.accordion import Accordion, AccordionItem
@@ -8,6 +9,7 @@ from kivy.uix.actionbar import ActionBar, ActionButton, ActionPrevious, ActionVi
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
+from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
@@ -69,6 +71,10 @@ class SelectionScreen(Screen):
         self.root.add_widget(confirmItem)
         self.CharButtons = []
         self.EnemyButtons = []
+        self.enemyIter = 0
+        self.quantity = 0
+        self.content = TextInput(text='9', multiline=False)
+        self.content.bind(on_text_validate=self.setQuantity)
         i = 0
         while i < Combatants.getNumChars():
             btn = ToggleButton(text=Combatants.getCharName(i))
@@ -95,8 +101,24 @@ class SelectionScreen(Screen):
         i = 0
         for e in self.EnemyButtons:
             if e.state == 'down':
-                Combatants.add(i, False)
+                labStr = "How many " + e.text + "?"
+                self.popup = Popup(title=labStr, content=self.content)
+                self.popup.open()
+                self.enemyIter = i
             i += 1
+
+    def setQuantity(self, instance):
+        self.quantity = self.content.text
+        j = 0
+        while j < int(self.quantity):
+            Combatants.add(self.enemyIter, False)
+            j += 1
+            if int(self.quantity) > 1:
+                Combatants.getLast().name = Combatants.getLast().Name + " " + str(j)
+        self.popup.dismiss()
+        self.beginBattle()
+
+    def beginBattle(self):
         BS = BattleScreen(name="Battle Screen")
         sm.add_widget(BS)
         Screens.append(BS)
@@ -114,9 +136,11 @@ class BattleScreen(Screen):
         self.nametag = ActionPrevious(title=self.prompt)
         self.MoveButton = ActionButton(text='Move')
         self.AttackButton = ActionButton(text='Attack')
+        self.AbilityButton = ActionButton(text='Item')
         self.ConfirmButton = ActionButton(text='Take Turn')
         self.MoveButton.bind(on_press=self.Move)
         self.AttackButton.bind(on_press=self.Action)
+        self.AbilityButton.bind(on_press=self.Ability)
         self.ConfirmButton.bind(on_press=self.TakeTurn)
         self.battleLog = 'Now Beginning Battle...'
         self.label = Label(text=self.battleLog)
@@ -126,9 +150,13 @@ class BattleScreen(Screen):
         self.view.add_widget(self.nametag)
         self.view.add_widget(self.MoveButton)
         self.view.add_widget(self.AttackButton)
+        self.view.add_widget(self.AbilityButton)
         self.view.add_widget(self.ConfirmButton)
         self.add_widget(self.layout)
         self.Target = Combatants.get(0)
+        Combatants.get(0).checkItems()
+        if Combatants.get(0).hasItems == False:
+            self.AbilityButton.disabled = True
 
     def TakeTurn(self, obj):
         if(Combatants.get(0).hasMoved == True and Combatants.get(0).hasActed == True):
@@ -144,6 +172,11 @@ class BattleScreen(Screen):
         self.nametag.title = self.prompt
         self.MoveButton.disabled = False
         self.AttackButton.disabled = False
+        Combatants.get(0).checkItems()
+        if Combatants.get(0).hasItems == True:
+            self.AbilityButton.disabled = False
+        else:
+            self.AbilityButton.disabled = True
 
     def Move(self, obj):
         Combatants.get(0).hasMoved = True
@@ -154,6 +187,13 @@ class BattleScreen(Screen):
         self.AttackButton.disabled = True
         Screens[0].populate()
         self.manager.current = 'Action Menu'
+
+    def Ability(self, obj):
+        Combatants.get(0).abilitiesUsed = Combatants.get(0).abilitiesUsed + 1
+        self.AbilityButton.disabled = True
+        Screens[1].populateItems()
+        Screens[1].populateTargs()
+        self.manager.current = 'Ability Menu'
 
     def Attack(self):
         damage = Action.Attack(Combatants.get(0).acc, self.Target.eva, Combatants.get(0).attack, self.Target.defense)
@@ -170,6 +210,13 @@ class BattleScreen(Screen):
                 msg = "%s was defeated!" %(self.Target.name)
                 self.battleLog = self.battleLog + "\n" + msg
                 self.label.text = self.battleLog
+
+    def UseItem(self, num):
+        Combatants.get(0).inventory[num].quantity -= 1
+        methodToCall = getattr(Item, Combatants.get(0).inventory[num].name)
+        msg = methodToCall(self.Target)
+        self.battleLog = self.battleLog + "\n" + msg
+        self.label.text = self.battleLog
 
 class ActionMenu(Screen):
     def __init__(self, **kwargs):
@@ -198,14 +245,71 @@ class ActionMenu(Screen):
         for b in self.ComButtons:
             if b.state == 'down':
                 hasTarget = True
-                Screens[1].Target = Combatants.get(i)
+                Screens[2].Target = Combatants.get(i)
             i += 1
         if hasTarget == True:
             hasTarget = False
             self.targItem.clear_widgets(children=self.ComButtons)
             self.ComButtons.clear()
             self.manager.current = 'Battle Screen'
-            Screens[1].Attack()
+            Screens[2].Attack()
+
+class AbilityMenu(Screen):
+    def __init__(self, **kwargs):
+        super(AbilityMenu, self).__init__(**kwargs)
+
+        self.root = Accordion(orientation='vertical')
+        self.invItem = AccordionItem(title='Item')
+        self.root.add_widget(self.invItem)
+        self.targItem = AccordionItem(title='Target')
+        self.root.add_widget(self.targItem)
+        self.conItem = AccordionItem(title='Confirm')
+        self.root.add_widget(self.conItem)
+        B = Button(text='Confirm')
+        B.bind(on_press=self.confirmTarget)
+        self.conItem.add_widget(B)
+        self.add_widget(self.root)
+
+    def populateItems(self):
+        self.ItemButtons = []
+        for item in Combatants.get(0).inventory:
+            if item.quantity > 0:
+                btn = ToggleButton(text=item.name, group='items')
+                self.invItem.add_widget(btn)
+                self.ItemButtons.append(btn)
+
+    def populateTargs(self):
+        self.ComButtons = []
+        for c in Combatants.retList():
+            btn = ToggleButton(text=c.name, group='targets')
+            self.targItem.add_widget(btn)
+            self.ComButtons.append(btn)
+
+    def confirmTarget(self, obj):
+        hasTarget = False
+        hasItem = False
+        itemNum = None
+        i = 0
+        for a in self.ItemButtons:
+            if a.state == 'down':
+                hasItem = True
+                itemNum = i
+            i += 1
+        i = 0
+        for b in self.ComButtons:
+            if b.state == 'down':
+                hasTarget = True
+                Screens[2].Target = Combatants.get(i)
+            i += 1
+        if hasTarget == True and hasItem == True:
+            hasTarget = False
+            hasItem = False
+            self.targItem.clear_widgets(children=self.ComButtons)
+            self.ComButtons.clear()
+            self.invItem.clear_widgets(children=self.ItemButtons)
+            self.ItemButtons.clear()
+            self.manager.current = 'Battle Screen'
+            Screens[2].UseItem(itemNum)
 
 class CombatApp(App):
     def build(self):
@@ -214,6 +318,9 @@ class CombatApp(App):
         AM = ActionMenu(name="Action Menu")
         Screens.append(AM)
         sm.add_widget(AM)
+        AbM = AbilityMenu(name="Ability Menu")
+        Screens.append(AbM)
+        sm.add_widget(AbM)
         return sm
 
 class BattleScene():
