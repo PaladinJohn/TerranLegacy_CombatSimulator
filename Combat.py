@@ -16,7 +16,7 @@ from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
-import Pyro4, Pyro4.util, random, socket, sys, threading
+import Pyro4, Pyro4.util, random, socket, sys, threading, time
 
 Combatants = None
 Screens = []
@@ -60,11 +60,11 @@ class ConnectionScreen(Screen):
             Combatants = Roster()
             t = threading.Thread(target = self.startServer)
             t.start()
+            global isDM
             isDM = True
         elif self.pcBtn.state == "down":
             nameserver = Pyro4.locateNS(host=self.textinput.text)
             Combatants = Pyro4.Proxy("PYRONAME:Combatants")
-            print(Combatants.testConnection())
         SS = SelectionScreen(name="Selection Screen")
         sm.add_widget(SS)
         self.manager.current = 'Selection Screen'
@@ -109,6 +109,7 @@ class SelectionScreen(Screen):
 
     def showCombatants(self, obj):
         i = 0
+        NoEnemies = True
         for c in self.CharButtons:
             if c.state == 'down':
                 Combatants.add(i, True)
@@ -117,10 +118,13 @@ class SelectionScreen(Screen):
         for e in self.EnemyButtons:
             if e.state == 'down':
                 labStr = "How many " + e.text + "?"
+                NoEnemies = False
                 self.popup = Popup(title=labStr, content=self.content)
                 self.popup.open()
                 self.enemyIter = i
             i += 1
+        if NoEnemies == True:
+            self.beginBattle()
 
     def setQuantity(self, instance):
         self.quantity = self.content.text
@@ -134,10 +138,31 @@ class SelectionScreen(Screen):
         self.beginBattle()
 
     def beginBattle(self):
-        BS = BattleScreen(name="Battle Screen")
-        sm.add_widget(BS)
-        Screens.append(BS)
-        self.manager.current = 'Battle Screen'
+        if isDM == True:
+            Combatants.isWaiting = False
+            BS = BattleScreen(name="Battle Screen")
+            sm.add_widget(BS)
+            Screens.append(BS)
+            self.manager.current = 'Battle Screen'
+        else:
+            WS = WaitScreen(name="Wait Screen")
+            sm.add_widget(WS)
+            self.manager.current = 'Wait Screen'
+
+class WaitScreen(Screen):
+    def __init__(self, **kwargs):
+        super(WaitScreen, self).__init__(**kwargs)
+
+        self.button = Button(text='Check if Ready')
+        self.button.bind(on_press=self.waitForPlayers)
+        self.add_widget(self.button)
+
+    def waitForPlayers(self, obj):
+        if Combatants.waiting() == False:
+            BS = BattleScreen(name="Battle Screen")
+            sm.add_widget(BS)
+            Screens.append(BS)
+            self.manager.current = 'Battle Screen'
 
 class BattleScreen(Screen):
     def __init__(self, **kwargs):
@@ -169,26 +194,27 @@ class BattleScreen(Screen):
         self.view.add_widget(self.ConfirmButton)
         self.add_widget(self.layout)
         self.Target = Combatants.get(0)
-        Combatants.get(0).checkItems()
-        if Combatants.get(0).hasItems == False:
+        Combatants.checkItems(0)
+        if Combatants.getHasItems(0) == False:
             self.AbilityButton.disabled = True
 
     def TakeTurn(self, obj):
-        if(Combatants.get(0).hasMoved == True and Combatants.get(0).hasActed == True):
-            delay = 100
-        elif(Combatants.get(0).hasMoved == False and Combatants.get(0).hasActed == False):
-            delay = 60
-        else:
-            delay = 80
-        Combatants.get(0).CT -= delay
-        Combatants.get(0).hasMoved = False
-        Combatants.get(0).hasActed = False
-        self.prompt = self.bScene.getTurn()
-        self.nametag.title = self.prompt
+        if isDM == True:
+            if(Combatants.get(0).hasMoved == True and Combatants.get(0).hasActed == True):
+                delay = 100
+            elif(Combatants.get(0).hasMoved == False and Combatants.get(0).hasActed == False):
+                delay = 60
+            else:
+                delay = 80
+            Combatants.get(0).CT -= delay
+            Combatants.get(0).hasMoved = False
+            Combatants.get(0).hasActed = False
+            self.prompt = self.bScene.getTurn()
+            self.nametag.title = self.prompt
         self.MoveButton.disabled = False
         self.AttackButton.disabled = False
-        Combatants.get(0).checkItems()
-        if Combatants.get(0).hasItems == True:
+        Combatants.checkItems(0)
+        if Combatants.getHasItems(0) == True:
             self.AbilityButton.disabled = False
         else:
             self.AbilityButton.disabled = True
@@ -358,22 +384,25 @@ class CombatApp(App):
 
 class BattleScene():
     def __init__(self):
-        self.Initiative()
+        if isDM == True:
+            self.Initiative()
     
     def Initiative(self):
         for c in Combatants.retList():
             c.CT = random.randint(0, 100)
 
     def getTurn(self):
-        Combatants.retList().sort(key = lambda Combatant: Combatant.CT, reverse = True)
-        while Combatants.get(0).CT < 100:
-            self.ClockTick()
-        prompt = Combatants.get(0).name
+        if isDM == True:
+            Combatants.retList().sort(key = lambda Combatant: Combatant.CT, reverse = True)
+            while Combatants.get(0).CT < 100:
+                self.ClockTick()
+        prompt = Combatants.getName(0)
         return prompt
 
     def ClockTick(self):
         for c in Combatants.retList():
-            c.CT += 5
+            if c.HP > 0:
+                c.CT += 5
 
 class main():
     CombatApp().run()

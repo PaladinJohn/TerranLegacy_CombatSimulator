@@ -4,11 +4,11 @@ class PlayerItem(object):
         self.quantity = num
 
 class Character(object):
-    def __init__(self, name, HP, attack, defense, acc, eva):
+    def __init__(self, name, HP, MP, attack, defense, acc, eva):
         self.name = name
-        self.baseName = name
         self.HP = HP
         self.MaxHP = HP
+        self.MP = MP
         self.attack = attack
         self.defense = defense
         self.acc = acc
@@ -21,6 +21,9 @@ class Character(object):
         self.abilitiesUsed = 0
         self.id = None
         self.inventory = []
+
+    def getName(self):
+        return self.name
 
     def addItem(self, name, num):
         item = PlayerItem(name, num)
